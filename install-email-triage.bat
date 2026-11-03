@@ -13,6 +13,9 @@ if /i "%~1"=="--dry-run" (
 set "REPO_URL=%~1"
 if not defined REPO_URL set "REPO_URL=%DEFAULT_REPO_URL%"
 
+set "TRIAGE_CHAT=Outlook Triage"
+set "TRIAGE_PROMPT=Triage my Outlook inbox for the last 7 days. Classify, prioritize, summarize, and propose organization. Do not change anything yet."
+
 if not defined HERMES_HOME set "HERMES_HOME=%LOCALAPPDATA%\hermes"
 if not defined EMAIL_TRIAGE_HOME set "EMAIL_TRIAGE_HOME=%USERPROFILE%\email-triage"
 
@@ -197,9 +200,10 @@ if "%DRY_RUN%"=="1" (
 )
 
 rem --- Step 7: Launch ---
-call :log "[7/7] Preparing to launch Hermes..."
+call :log "[7/7] Opening Hermes Desktop..."
 if "%DRY_RUN%"=="1" (
-    call :log "[dry-run] Would launch Hermes in %APP_DIR% with -s outlook-clawlink-triage"
+    call :log "[dry-run] Would open Hermes Desktop in %APP_DIR%"
+    call :log "[dry-run] Would create chat '%TRIAGE_CHAT%' and send the triage prompt if it is missing"
     call :log "Dry run complete. No changes made."
     exit /b 0
 )
@@ -208,21 +212,35 @@ echo.
 echo ClawLink pairing is separate from Outlook. Connect Outlook at:
 echo   https://claw-link.dev/integrations/outlook
 echo.
-echo Suggested first prompt:
-echo   Triage my Outlook inbox for the last 7 days. Classify, prioritize,
-echo   summarize, and propose organization. Do not change anything yet.
+echo First prompt:
+echo   %TRIAGE_PROMPT%
 echo.
-call :log "Launching Hermes with outlook-clawlink-triage..."
-timeout /t 5 /nobreak >nul 2>nul
-pushd "%APP_DIR%"
+call :log "Opening Hermes Desktop in %APP_DIR%..."
+call "%HERMES%" desktop --cwd "%APP_DIR%"
 if errorlevel 1 (
-    set "FAIL_MSG=Could not open the project directory: %APP_DIR%."
+    set "FAIL_MSG=Could not open Hermes Desktop."
     goto :fail
 )
-call "%HERMES%" -s outlook-clawlink-triage
-set "RC=!ERRORLEVEL!"
-popd
-exit /b !RC!
+
+for %%I in ("%APP_DIR%") do set "WORK_DIR=%%~fI"
+if "!WORK_DIR:~-1!"=="\" set "WORK_DIR=!WORK_DIR:~0,-1!"
+call :log "Checking for existing chat '%TRIAGE_CHAT%'..."
+set "CHAT_FOUND="
+for /f "delims=" %%L in ('call "%HERMES%" sessions list --limit 1000 2^>nul ^| findstr /i /c:"%TRIAGE_CHAT%"') do set "CHAT_FOUND=1"
+
+if defined CHAT_FOUND (
+    call :log "Chat '%TRIAGE_CHAT%' already exists; leaving it unchanged."
+    exit /b 0
+)
+
+call :log "Chat '%TRIAGE_CHAT%' not found. Creating it and sending the triage prompt..."
+call "%HERMES%" chat --in "%WORK_DIR%" -c "%TRIAGE_CHAT%" --create-if-missing --source cli -q "%TRIAGE_PROMPT%" --oneshot
+if errorlevel 1 (
+    set "FAIL_MSG=Could not create chat '%TRIAGE_CHAT%' or send the triage prompt."
+    goto :fail
+)
+call :log "Chat '%TRIAGE_CHAT%' created and prompted."
+exit /b 0
 
 :find_git
 if defined GIT exit /b 0
