@@ -130,13 +130,19 @@ if "%DRY_RUN%"=="0" (
 )
 
 rem --- Step 3: Model ---
-call :log "[3/7] Configuring Hermes model/provider..."
+call :log "[3/7] Choosing the Hermes model/provider (OpenCode)..."
 if "%DRY_RUN%"=="1" (
-    call :log "[dry-run] Would run: hermes setup --quick"
+    call :log "[dry-run] Would run: hermes model (choose an OpenCode provider/model)"
 ) else (
-    call "%HERMES%" setup --quick
+    call :log "Pick an OpenCode provider and model in the picker."
+    call "%HERMES%" model
     if errorlevel 1 (
-        set "FAIL_MSG=Hermes setup failed or was canceled. Run 'hermes setup' manually, then rerun this batch."
+        set "FAIL_MSG=Model selection failed or was canceled. Run 'hermes model' (choose OpenCode), then rerun this batch."
+        goto :fail
+    )
+    call :check_model_provider
+    if errorlevel 1 (
+        set "FAIL_MSG=The selected provider is not OpenCode. Run 'hermes model' and choose an OpenCode provider, then rerun this batch."
         goto :fail
     )
 )
@@ -203,19 +209,19 @@ if "%DRY_RUN%"=="1" (
 rem --- Step 6.5: Ensure Outlook Email Triage Cron Exists ---
 call :log "[6.5/7] Checking Outlook triage Cron job..."
 
+set "CRON_LIST=%TEMP%\hermes-cron-list.txt"
+
 if "%DRY_RUN%"=="1" (
     call :log "[dry-run] Would check and create Outlook triage Cron if missing."
 ) else (
-    set "CRON_LIST=%TEMP%\hermes-cron-list.txt"
-
-    call "%HERMES%" cron list > "%CRON_LIST%" 2>&1
+    call "%HERMES%" cron list > "!CRON_LIST!" 2>&1
 
     if errorlevel 1 (
         set "FAIL_MSG=Could not retrieve Hermes Cron jobs."
         goto :fail
     )
 
-    findstr /i /c:"outlook-email-triage" "%CRON_LIST%" >nul
+    findstr /i /c:"outlook-email-triage" "!CRON_LIST!" >nul
 
     if errorlevel 1 (
         call :log "Outlook triage Cron not found. Creating..."
@@ -237,7 +243,7 @@ if "%DRY_RUN%"=="1" (
         call :log "Outlook triage Cron already exists. Leaving unchanged."
     )
 
-    del "%CRON_LIST%" >nul 2>nul
+    if exist "!CRON_LIST!" del /f /q "!CRON_LIST!" >nul 2>nul
 )
 
 
@@ -297,6 +303,16 @@ for /d %%D in ("%HERMES_HOME%\tools\git-*") do (
     if not defined GIT if exist "%%~fD\bin\git.exe" set "GIT=%%~fD\bin\git.exe"
 )
 if not defined GIT set "GIT_MISSING=1"
+exit /b 0
+
+:check_model_provider
+set "SEL_PROVIDER="
+for /f "tokens=1,* delims=:" %%A in ('call "%HERMES%" status 2^>nul ^| findstr /i /c:"Provider:"') do set "SEL_PROVIDER=%%B"
+if not defined SEL_PROVIDER exit /b 0
+for /f "tokens=*" %%P in ("!SEL_PROVIDER!") do set "SEL_PROVIDER=%%P"
+call :log "Selected provider: !SEL_PROVIDER!"
+echo !SEL_PROVIDER! | findstr /i /c:"opencode" >nul
+if errorlevel 1 exit /b 1
 exit /b 0
 
 :log
